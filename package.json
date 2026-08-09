@@ -1,0 +1,21 @@
+{
+  "name": "public-procurement-mcp",
+  "version": "1.0.0",
+  "description": "Neutral MCP server for public procurement notices from TED and Germany's DÖE open data.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "csv-parse": "6.1.0",
+    "express": "5.2.1",
+    "unzipper": "0.12.5",
+    "zod": "4.3.6"
+  }
+}

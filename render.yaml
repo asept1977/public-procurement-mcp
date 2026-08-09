@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: public-procurement-mcp
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /status
+    envVars:
+      - key: MCP_AUTH_TOKEN
+        generateValue: true
+      - key: DEMO_MODE
+        value: "false"
+      - key: UPSTREAM_TIMEOUT_MS
+        value: "30000"
+      - key: MAX_DOE_DAYS
+        value: "3"
+      - key: MAX_DOE_CACHE_DAYS
+        value: "1"
