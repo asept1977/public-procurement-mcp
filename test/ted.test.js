@@ -21,13 +21,17 @@ test("buildTedQuery creates neutral filters", () => {
 test("normalizeTedNotice keeps the original record", () => {
   const raw = {
     "publication-number": "123456-2026",
-    "notice-title": { eng: "A neutral tender" },
+    "notice-title": {
+      hun: "Magyar cím",
+      eng: "A neutral tender",
+      deu: "Eine neutrale Ausschreibung",
+    },
     "buyer-name": ["Example buyer"],
     "classification-cpv": ["72000000"],
   };
   const notice = normalizeTedNotice(raw);
   assert.equal(notice.source_notice_id, "123456-2026");
-  assert.equal(notice.title, "A neutral tender");
+  assert.equal(notice.title, "Eine neutrale Ausschreibung");
   assert.deepEqual(notice.cpv_codes, ["72000000"]);
   assert.equal(notice.raw, raw);
 });

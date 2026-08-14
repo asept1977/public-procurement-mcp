@@ -49,7 +49,22 @@ function first(value) {
 function strings(value) {
   if (value == null) return [];
   if (Array.isArray(value)) return value.flatMap(strings).filter(Boolean);
-  if (typeof value === "object") return Object.values(value).flatMap(strings).filter(Boolean);
+  if (typeof value === "object") {
+    const languagePriority = ["deu", "ger", "de", "eng", "en"];
+    const entries = Object.entries(value).map(([key, item], index) => ({
+      key: key.toLowerCase(),
+      item,
+      index,
+    }));
+    entries.sort((left, right) => {
+      const leftPriority = languagePriority.indexOf(left.key);
+      const rightPriority = languagePriority.indexOf(right.key);
+      const leftRank = leftPriority === -1 ? languagePriority.length : leftPriority;
+      const rightRank = rightPriority === -1 ? languagePriority.length : rightPriority;
+      return leftRank - rightRank || left.index - right.index;
+    });
+    return entries.flatMap(({ item }) => strings(item)).filter(Boolean);
+  }
   return [String(value)];
 }
 
