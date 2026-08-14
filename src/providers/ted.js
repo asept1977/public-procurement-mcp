@@ -96,11 +96,13 @@ export async function searchTed(options, { fetchImpl = fetch } = {}) {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({
-      q: query,
+      query,
       fields: options.fields?.length ? options.fields : TED_DEFAULT_FIELDS,
-      pageNum: page,
-      pageSize,
+      page,
+      limit: pageSize,
       scope: options.scope ?? "ALL",
+      checkQuerySyntax: false,
+      paginationMode: "PAGE_NUMBER",
     }),
     signal: AbortSignal.timeout(Number(process.env.UPSTREAM_TIMEOUT_MS ?? 30000)),
   });

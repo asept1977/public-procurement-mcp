@@ -4,6 +4,26 @@ import unzipper from "unzipper";
 
 const DOE_EXPORT_URL = "https://oeffentlichevergabe.de/api/notice-exports";
 const cache = new Map();
+const pending = new Map();
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function retryAfterMilliseconds(response, attempt) {
+  const value = response.headers.get("retry-after");
+  if (value) {
+    const seconds = Number(value);
+    if (Number.isFinite(seconds)) return Math.max(0, Math.min(seconds * 1000, 10000));
+    const date = Date.parse(value);
+    if (Number.isFinite(date)) return Math.max(0, Math.min(date - Date.now(), 10000));
+  }
+  return Math.min(500 * (2 ** attempt), 5000);
+}
+
+function retryableStatus(status) {
+  return status === 408 || status === 429 || status >= 500;
+}
 
 function normalizedKey(key) {
   return String(key).toLowerCase().replaceAll(/[^a-z0-9]/g, "");
@@ -107,40 +127,84 @@ export function normalizeDoeTables(tables, publicationDate) {
   });
 }
 
-export async function downloadDoeExport(publicationDate, { fetchImpl = fetch } = {}) {
+export async function downloadDoeExport(publicationDate, { fetchImpl = fetch, sleepImpl = sleep } = {}) {
   const url = new URL(DOE_EXPORT_URL);
   url.searchParams.set("pubDay", publicationDate);
   url.searchParams.set("format", "csv.zip");
-  const response = await fetchImpl(url, {
-    headers: { accept: "application/zip, application/octet-stream" },
-    signal: AbortSignal.timeout(Number(process.env.UPSTREAM_TIMEOUT_MS ?? 30000)),
-  });
-  if (!response.ok) {
-    const detail = (await response.text()).slice(0, 1000);
-    throw new Error(`DÖE export API returned ${response.status}: ${detail}`);
+  const timeout = Number(process.env.DOE_UPSTREAM_TIMEOUT_MS ?? 90000);
+  const maxRetries = Math.max(0, Number(process.env.DOE_MAX_RETRIES ?? 2));
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    let response;
+    try {
+      response = await fetchImpl(url, {
+        headers: { accept: "application/zip, application/octet-stream" },
+        signal: AbortSignal.timeout(timeout),
+      });
+    } catch (error) {
+      if (attempt < maxRetries) {
+        await sleepImpl(Math.min(500 * (2 ** attempt), 5000));
+        continue;
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`DÖE export API request failed after ${attempt + 1} attempt(s): ${detail}`);
+    }
+
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 1000);
+      if (attempt < maxRetries && retryableStatus(response.status)) {
+        await sleepImpl(retryAfterMilliseconds(response, attempt));
+        continue;
+      }
+      throw new Error(`DÖE export API returned ${response.status}: ${detail}`);
+    }
+
+    const maxBytes = Number(process.env.MAX_DOE_EXPORT_BYTES ?? 50 * 1024 * 1024);
+    const declaredLength = Number(response.headers.get("content-length") ?? 0);
+    if (declaredLength > maxBytes) throw new Error(`DÖE export exceeds ${maxBytes} bytes`);
+    try {
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length > maxBytes) throw new Error(`DÖE export exceeds ${maxBytes} bytes`);
+      return { url: url.toString(), buffer };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("DÖE export exceeds")) throw error;
+      if (attempt < maxRetries) {
+        await sleepImpl(Math.min(500 * (2 ** attempt), 5000));
+        continue;
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`DÖE export download failed after ${attempt + 1} attempt(s): ${detail}`);
+    }
   }
-  const maxBytes = Number(process.env.MAX_DOE_EXPORT_BYTES ?? 50 * 1024 * 1024);
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > maxBytes) throw new Error(`DÖE export exceeds ${maxBytes} bytes`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length > maxBytes) throw new Error(`DÖE export exceeds ${maxBytes} bytes`);
-  return { url: url.toString(), buffer };
+
+  throw new Error("DÖE export download failed");
 }
 
 export async function getDoeDay(publicationDate, options = {}) {
   if (cache.has(publicationDate)) return cache.get(publicationDate);
-  const { url, buffer } = await downloadDoeExport(publicationDate, options);
-  const tables = await parseDoeExport(buffer);
-  const value = {
-    source: "doe",
-    publication_date: publicationDate,
-    export_url: url,
-    table_counts: Object.fromEntries(Object.entries(tables).map(([name, rows]) => [name, rows.length])),
-    notices: normalizeDoeTables(tables, publicationDate),
-  };
-  cache.set(publicationDate, value);
-  while (cache.size > Number(process.env.MAX_DOE_CACHE_DAYS ?? 1)) cache.delete(cache.keys().next().value);
-  return value;
+  if (pending.has(publicationDate)) return pending.get(publicationDate);
+
+  const request = (async () => {
+    const { url, buffer } = await downloadDoeExport(publicationDate, options);
+    const tables = await parseDoeExport(buffer);
+    const value = {
+      source: "doe",
+      publication_date: publicationDate,
+      export_url: url,
+      table_counts: Object.fromEntries(Object.entries(tables).map(([name, rows]) => [name, rows.length])),
+      notices: normalizeDoeTables(tables, publicationDate),
+    };
+    cache.set(publicationDate, value);
+    while (cache.size > Number(process.env.MAX_DOE_CACHE_DAYS ?? 1)) cache.delete(cache.keys().next().value);
+    return value;
+  })();
+
+  pending.set(publicationDate, request);
+  try {
+    return await request;
+  } finally {
+    pending.delete(publicationDate);
+  }
 }
 
 function isoDays(from, to, maxDays = 7) {

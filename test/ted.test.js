@@ -38,12 +38,18 @@ test("searchTed sends a v3 request and normalizes results", async () => {
     request = { url, body: JSON.parse(options.body) };
     return new Response(JSON.stringify({
       totalNoticeCount: 1,
-      results: [{ "publication-number": "1-2026", "notice-title": "Example" }],
+      notices: [{ "publication-number": "1-2026", "notice-title": "Example" }],
     }), { status: 200, headers: { "content-type": "application/json" } });
   };
   const result = await searchTed({ keywords: ["example"], page: 2, page_size: 10 }, { fetchImpl });
   assert.equal(request.url, "https://api.ted.europa.eu/v3/notices/search");
-  assert.equal(request.body.pageNum, 2);
+  assert.equal(request.body.query, 'FT=("example")');
+  assert.equal(request.body.page, 2);
+  assert.equal(request.body.limit, 10);
+  assert.equal(request.body.paginationMode, "PAGE_NUMBER");
+  assert.equal("q" in request.body, false);
+  assert.equal("pageNum" in request.body, false);
+  assert.equal("pageSize" in request.body, false);
   assert.equal(result.total, 1);
   assert.equal(result.notices[0].source, "ted");
 });
