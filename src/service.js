@@ -68,22 +68,45 @@ export function listSources() {
   };
 }
 
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function searchNotices(input, dependencies = {}) {
   if (process.env.DEMO_MODE === "true") {
     return { ok: true, mode: "demo", total: DEMO_NOTICES.length, notices: DEMO_NOTICES };
   }
   const source = input.source ?? "ted";
   const searches = [];
-  if (source === "ted" || source === "all") searches.push(searchTed(input, dependencies));
-  if (source === "doe" || source === "all") searches.push(searchDoe(input, dependencies));
-  const results = await Promise.all(searches);
+  if (source === "ted" || source === "all") searches.push({ source: "ted", promise: searchTed(input, dependencies) });
+  if (source === "doe" || source === "all") searches.push({ source: "doe", promise: searchDoe(input, dependencies) });
+
+  const settled = await Promise.allSettled(searches.map((item) => item.promise));
+  const results = [];
+  const sourceResults = settled.map((item, index) => {
+    const sourceId = searches[index].source;
+    if (item.status === "rejected") {
+      return { source: sourceId, ok: false, error: errorMessage(item.reason) };
+    }
+    results.push(item.value);
+    const { notices: ignored, ...metadata } = item.value;
+    return { ok: true, ...metadata };
+  });
+
+  const failures = sourceResults.filter((item) => !item.ok);
+  if (failures.length === sourceResults.length) {
+    throw new Error(`All selected sources failed: ${failures.map((item) => `${item.source}: ${item.error}`).join("; ")}`);
+  }
+
   const notices = deduplicate(results.flatMap((item) => item.notices));
   return {
     ok: true,
     source,
+    partial: failures.length > 0,
     total: notices.length,
     notices,
-    source_results: results.map(({ notices: ignored, ...metadata }) => metadata),
+    source_results: sourceResults,
+    warnings: failures.map((item) => ({ source: item.source, error: item.error })),
     deduplication: "TED publication numbers are preferred as cross-source keys; otherwise source IDs are retained.",
   };
 }
