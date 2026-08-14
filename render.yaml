@@ -12,6 +12,10 @@ services:
         value: "false"
       - key: UPSTREAM_TIMEOUT_MS
         value: "30000"
+      - key: DOE_UPSTREAM_TIMEOUT_MS
+        value: "90000"
+      - key: DOE_MAX_RETRIES
+        value: "2"
       - key: MAX_DOE_DAYS
         value: "3"
       - key: MAX_DOE_CACHE_DAYS
