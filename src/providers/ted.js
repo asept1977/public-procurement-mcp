@@ -104,26 +104,37 @@ export function normalizeTedNotice(record) {
 }
 
 export async function searchTed(options, { fetchImpl = fetch } = {}) {
-  const query = buildTedQuery(options);
+  let query = buildTedQuery(options);
   const page = options.page ?? 1;
   const pageSize = Math.min(options.page_size ?? 20, 100);
-  const response = await fetchImpl(TED_SEARCH_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({
-      query,
-      fields: options.fields?.length ? options.fields : TED_DEFAULT_FIELDS,
-      page,
-      limit: pageSize,
-      scope: options.scope ?? "ALL",
-      checkQuerySyntax: false,
-      paginationMode: "PAGE_NUMBER",
-    }),
-    signal: AbortSignal.timeout(Number(process.env.UPSTREAM_TIMEOUT_MS ?? 30000)),
-  });
+  const request = (requestQuery) => fetchImpl(TED_SEARCH_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({
+        query: requestQuery,
+        fields: options.fields?.length ? options.fields : TED_DEFAULT_FIELDS,
+        page,
+        limit: pageSize,
+        scope: options.scope ?? "ALL",
+        checkQuerySyntax: false,
+        paginationMode: "PAGE_NUMBER",
+      }),
+      signal: AbortSignal.timeout(Number(process.env.UPSTREAM_TIMEOUT_MS ?? 30000)),
+    });
+
+  let response = await request(query);
+  let expertQueryFallback = false;
+  if (!response.ok && response.status === 400 && options.expert_query?.trim()) {
+    const structuredQuery = buildTedQuery({ ...options, expert_query: undefined });
+    if (structuredQuery !== "*" && structuredQuery !== query) {
+      response = await request(structuredQuery);
+      query = structuredQuery;
+      expertQueryFallback = response.ok;
+    }
+  }
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 1000);
-    throw new Error(`TED Search API returned ${response.status}: ${detail}`);
+    throw new Error(`TED Search API returned ${response.status} for query ${JSON.stringify(query)}: ${detail}`);
   }
   const payload = await response.json();
   const records = payload.results ?? payload.notices ?? [];
@@ -134,6 +145,9 @@ export async function searchTed(options, { fetchImpl = fetch } = {}) {
     page_size: pageSize,
     total: payload.totalNoticeCount ?? payload.total ?? records.length,
     notices: records.map(normalizeTedNotice),
+    ...(expertQueryFallback ? {
+      warning: "Invalid TED expert_query was ignored; structured filters were used instead.",
+    } : {}),
   };
 }
 

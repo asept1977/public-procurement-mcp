@@ -17,7 +17,7 @@ function registerTools(server) {
     description: "Search and normalize public procurement notices. Company-specific relevance rules must be supplied by the calling agent or skill.",
     inputSchema: {
       source: z.enum(["ted", "doe", "all"]).default("ted"),
-      expert_query: z.string().optional().describe("Raw TED expert query. Used only for TED and preferred for advanced searches."),
+      expert_query: z.string().optional().describe("Optional raw TED expert query for callers that already have verified TED syntax. Leave unset for ordinary keyword and filter searches."),
       keywords: z.array(z.string()).max(25).default([]),
       published_from: dateString.optional(),
       published_to: dateString.optional(),

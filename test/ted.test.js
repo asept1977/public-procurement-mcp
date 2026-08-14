@@ -57,3 +57,34 @@ test("searchTed sends a v3 request and normalizes results", async () => {
   assert.equal(result.total, 1);
   assert.equal(result.notices[0].source, "ted");
 });
+
+test("searchTed falls back to structured filters after an invalid expert query", async () => {
+  const queries = [];
+  const fetchImpl = async (_url, options) => {
+    const { query } = JSON.parse(options.body);
+    queries.push(query);
+    if (queries.length === 1) {
+      return new Response(JSON.stringify({ error: { type: "QUERY_SYNTAX_ERROR" } }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ totalNoticeCount: 0, notices: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const result = await searchTed({
+    expert_query: "FT OR invalid",
+    keywords: ["AI platform", "Machine Learning Platform"],
+    published_from: "2025-01-01",
+  }, { fetchImpl });
+
+  assert.deepEqual(queries, [
+    "FT OR invalid",
+    'FT=("AI platform" OR "Machine Learning Platform") AND publication-date >= 20250101',
+  ]);
+  assert.equal(result.query, queries[1]);
+  assert.match(result.warning, /expert_query was ignored/);
+});
