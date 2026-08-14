@@ -131,8 +131,8 @@ export async function downloadDoeExport(publicationDate, { fetchImpl = fetch, sl
   const url = new URL(DOE_EXPORT_URL);
   url.searchParams.set("pubDay", publicationDate);
   url.searchParams.set("format", "csv.zip");
-  const timeout = Number(process.env.DOE_UPSTREAM_TIMEOUT_MS ?? 90000);
-  const maxRetries = Math.max(0, Number(process.env.DOE_MAX_RETRIES ?? 2));
+  const timeout = Number(process.env.DOE_UPSTREAM_TIMEOUT_MS ?? 20000);
+  const maxRetries = Math.max(0, Number(process.env.DOE_MAX_RETRIES ?? 1));
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     let response;
